@@ -3,4 +3,6 @@ __pycache__/
 .streamlit/secrets.toml
 .DS_Store
 .claude/
+# Excluir xlsx de resultados pero NO el de infraestructura
 *.xlsx
+!data/*.xlsx
