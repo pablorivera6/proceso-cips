@@ -4,6 +4,7 @@ Corriente Interrumpida: limpieza, LRS y sincronización con SharePoint
 """
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import msal
 import requests
 import io
@@ -29,7 +30,26 @@ st.markdown("""
   [data-testid="stSidebar"] > div:first-child {
     background: linear-gradient(180deg, #b8233e 0%, #7a1429 100%) !important;
   }
+  /* Texto general del sidebar en blanco */
   [data-testid="stSidebar"] * { color: rgba(255,255,255,0.92) !important; }
+
+  /* Selectboxes: fondo blanco, texto oscuro para que se lea */
+  [data-testid="stSidebar"] [data-baseweb="select"] > div {
+    background: rgba(255,255,255,0.95) !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+    border-radius: 8px !important;
+  }
+  [data-testid="stSidebar"] [data-baseweb="select"] * {
+    color: #1E293B !important;
+  }
+  [data-testid="stSidebar"] [data-baseweb="select"] svg {
+    fill: #1E293B !important;
+  }
+  /* Labels encima del selectbox: blancos */
+  [data-testid="stSidebar"] p,
+  [data-testid="stSidebar"] strong {
+    color: rgba(255,255,255,0.92) !important;
+  }
   .stButton > button {
     background: linear-gradient(135deg, #b8233e, #d42848) !important;
     color: white !important; border: none !important;
@@ -228,16 +248,51 @@ with col_up:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_param:
-    _p = '<p style="margin:0.4rem 0;color:#1a1a1a">'
-    rows_html = [f'{_p}<b>Cliente:</b> {cliente}</p>']
+    shp_badge  = "✅ Encontrado" if shp_ok else "❌ No encontrado"
+    shp_color  = "#166534" if shp_ok else "#991B1B"
+    shp_bg     = "#F0FFF4" if shp_ok else "#FFF5F5"
+    n_arch     = len(archivos)
+    arch_color = "#166534" if n_arch > 0 else "#64748B"
+
+    filas = []
+    filas.append(("Cliente",    cliente,       "#0F172A"))
     if cliente == "TGI":
-        rows_html.append(f'{_p}<b>Distrito:</b> {dist}</p>')
-    rows_html += [
-        f'{_p}<b>Tramo:</b> {linea}</p>',
-        f'{_p}<b>Shapefile:</b> {"✅" if shp_ok else "❌"} {"Encontrado" if shp_ok else "No encontrado"}</p>',
-        f'{_p}<b>Archivos:</b> {len(archivos)}</p>',
-    ]
-    st.html('<div class="bloque"><div class="bloque-titulo">Parámetros</div>' + "".join(rows_html) + "</div>")
+        filas.append(("Distrito", dist,         "#0F172A"))
+    filas.append(("Tramo",      linea,          "#0F172A"))
+
+    rows_html = "".join(f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                padding:6px 0;border-bottom:1px solid #F1F5F9;">
+      <span style="font-size:0.8rem;color:#64748B;font-weight:600;">{k}</span>
+      <span style="font-size:0.85rem;color:{c};font-weight:700;text-align:right;
+                   max-width:60%;word-break:break-word;">{v}</span>
+    </div>""" for k,v,c in filas)
+
+    st.markdown(f"""
+    <div style="background:white;border:1px solid #E2E8F0;border-radius:12px;
+                padding:1.2rem;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+      <p style="font-size:0.72rem;text-transform:uppercase;font-weight:700;
+                color:#D50032;letter-spacing:0.08em;margin:0 0 0.8rem 0;">
+        Parámetros seleccionados
+      </p>
+      {rows_html}
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  padding:6px 0;border-bottom:1px solid #F1F5F9;">
+        <span style="font-size:0.8rem;color:#64748B;font-weight:600;">Shapefile</span>
+        <span style="font-size:0.82rem;font-weight:700;color:{shp_color};
+                     background:{shp_bg};padding:2px 8px;border-radius:20px;">
+          {shp_badge}
+        </span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  padding:6px 0;">
+        <span style="font-size:0.8rem;color:#64748B;font-weight:600;">Archivos</span>
+        <span style="font-size:0.85rem;font-weight:700;color:{arch_color};">
+          {n_arch} {'archivo' if n_arch == 1 else 'archivos'}
+        </span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 _, col_btn, _ = st.columns([2, 1, 2])
 with col_btn:
@@ -325,7 +380,48 @@ if st.session_state.res_df is not None:
     c3.metric("Desprotegidos",  desp)
     c4.metric("Sobreprotegidos",sobre)
 
-    with st.expander("Vista previa"):
+    # ── Gráfica On/Off vs PK ──────────────────────────────────────────────────
+    pk_col = next((c for c in ["PK_geom_m","PK_real_m"] if c in df.columns), None)
+    if pk_col and ("On_mV_limpio" in df.columns or "Off_mV_limpio" in df.columns):
+        sub = df.dropna(subset=[pk_col]).sort_values(pk_col)
+        if len(sub) > 3000:
+            sub = sub.iloc[::max(1, len(sub)//3000)]
+
+        fig = go.Figure()
+        if "On_mV_limpio" in sub.columns:
+            fig.add_trace(go.Scatter(
+                x=sub[pk_col], y=sub["On_mV_limpio"],
+                mode="lines", name="On mV",
+                line=dict(color="#9CA3AF", width=1.4),
+                fill="tozeroy", fillcolor="rgba(156,163,175,0.05)"))
+        if "Off_mV_limpio" in sub.columns:
+            fig.add_trace(go.Scatter(
+                x=sub[pk_col], y=sub["Off_mV_limpio"],
+                mode="lines", name="Off mV",
+                line=dict(color="#D50032", width=2.0)))
+
+        fig.add_hrect(y0=-1200, y1=-850, fillcolor="rgba(55,65,81,0.05)", line_width=0,
+                      annotation_text="Zona protegida", annotation_position="top left",
+                      annotation_font=dict(size=9, color="#374151"))
+        fig.add_hline(y=-850,  line=dict(color="#6B7280", dash="dash", width=1.2),
+                      annotation_text="-850 mV", annotation_position="top right",
+                      annotation_font=dict(size=9, color="#6B7280"))
+        fig.add_hline(y=-1200, line=dict(color="#D50032", dash="dash", width=1.2),
+                      annotation_text="-1.200 mV", annotation_position="bottom right",
+                      annotation_font=dict(size=9, color="#D50032"))
+        fig.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            height=300, margin=dict(t=30,b=40,l=50,r=20),
+            font=dict(size=12, family="Inter, sans-serif", color="#475569"),
+            xaxis_title="PK (m)", yaxis_title="mV",
+            legend=dict(orientation="h", y=-0.25, font_size=11),
+            hovermode="x unified",
+            xaxis=dict(showgrid=True, gridcolor="#F1F5F9", zeroline=False),
+            yaxis=dict(showgrid=True, gridcolor="#F1F5F9", zeroline=False),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Vista previa de datos"):
         cols = [c for c in ["PK_geom_m","Lat_corr","Long_corr","On_mV_limpio","Off_mV_limpio","Estado_CP"] if c in df.columns]
         st.dataframe(df[cols].head(300), use_container_width=True, height=300)
 
